@@ -33,40 +33,66 @@ def get_title_text(prop_obj: dict) -> str:
     title_arr = prop_obj.get("title", [])
     return "".join(t.get("plain_text", "") for t in title_arr).strip()
 
+from datetime import datetime, date
+
 def fetch_price_stooq(ticker: str) -> float | None:
     """
-    Free endpoint (no key). Typically latest session close / delayed.
-    Stooq uses symbols like nvda.us for US stocks.
+    Pull latest daily close from Stooq CSV download.
+    US tickers use .US suffix. Stooq close is typically adjusted close. :contentReference[oaicite:2]{index=2}
     """
-    t = ticker.strip().lower()
+    t = ticker.strip().upper()
     if not t:
         return None
 
-    # Common special cases (add more if you need them)
-    # Example: BRK.B -> brk-b.us on some data sources (varies)
-    t = t.replace(".", "-")
+    # Stooq ticker format for US symbols
+    symbol = f"{t}.US"
+    url = f"https://stooq.com/q/d/l/?s={symbol}&i=d"  # :contentReference[oaicite:3]{index=3}
 
-    symbol = f"{t}.us"
-    url = f"https://stooq.com/q/l/?s={symbol}&i=d"
+    r = requests.get(
+        url,
+        timeout=20,
+        headers={"User-Agent": "Mozilla/5.0"}  # helps avoid some blocks
+    )
+    if not r.ok:
+        return None
 
-    r = requests.get(url, timeout=20)
-    r.raise_for_status()
     lines = [ln.strip() for ln in r.text.splitlines() if ln.strip()]
     if len(lines) < 2:
         return None
 
-    # CSV format usually:
-    # Symbol,Date,Open,High,Low,Close,Volume
-    # nvda.us,2026-01-27,....,188.52,....
-    last = lines[-1].split(",")
-    if len(last) < 6:
-        return None
+    # CSV expected: Date,Open,High,Low,Close,Volume
+    best_d: date | None = None
+    best_close: float | None = None
 
-    close_str = last[5]
-    try:
-        return float(close_str)
-    except ValueError:
-        return None
+    for ln in lines[1:]:
+        parts = ln.split(",")
+        if len(parts) < 5:
+            continue
+
+        date_s = parts[0].strip()
+        close_s = parts[4].strip()
+
+        try:
+            close_v = float(close_s)
+        except ValueError:
+            continue
+
+        # Stooq can return YYYY-MM-DD or YYYYMMDD; handle both
+        d = None
+        try:
+            d = datetime.strptime(date_s, "%Y-%m-%d").date()
+        except ValueError:
+            try:
+                d = datetime.strptime(date_s, "%Y%m%d").date()
+            except ValueError:
+                continue
+
+        if best_d is None or d > best_d:
+            best_d = d
+            best_close = close_v
+
+    return best_close
+
 
 def query_database_pages():
     url = f"{NOTION_API}/databases/{NOTION_DATABASE_ID}/query"
