@@ -28,5 +28,5 @@ jobs:
           # Optional overrides:
           # NOTION_TICKER_PROP: "Ticker"
           # NOTION_CLOSE_PROP: "Close"
-          # ONLY_UPDATE_STATUS: "Open"
+          ONLY_UPDATE_STATUS: ""
         run: python update_notion_prices.py
